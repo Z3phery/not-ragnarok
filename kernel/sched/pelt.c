@@ -30,42 +30,6 @@
 
 #include <trace/events/sched.h>
 
-int pelt_load_avg_period = PELT32_LOAD_AVG_PERIOD;
-int pelt_load_avg_max = PELT32_LOAD_AVG_MAX;
-const u32 *pelt_runnable_avg_yN_inv = pelt32_runnable_avg_yN_inv;
-
-static int __init set_pelt(char *str)
-{
-	int rc, num;
-
-	rc = kstrtoint(str, 0, &num);
-	if (rc) {
-		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
-		return 0;
-	}
-
-	switch (num) {
-	case PELT8_LOAD_AVG_PERIOD:
-		pelt_load_avg_period = PELT8_LOAD_AVG_PERIOD;
-		pelt_load_avg_max = PELT8_LOAD_AVG_MAX;
-		pelt_runnable_avg_yN_inv = pelt8_runnable_avg_yN_inv;
-		pr_info("PELT half life is set to %dms\n", num);
-		break;
-	case PELT32_LOAD_AVG_PERIOD:
-		pelt_load_avg_period = PELT32_LOAD_AVG_PERIOD;
-		pelt_load_avg_max = PELT32_LOAD_AVG_MAX;
-		pelt_runnable_avg_yN_inv = pelt32_runnable_avg_yN_inv;
-		pr_info("PELT half life is set to %dms\n", num);
-		break;
-	default:
-		pr_err("Default PELT half life is 32ms\n");
-	}
-
-	return 0;
-}
-
-early_param("pelt", set_pelt);
-
 /*
  * Approximate:
  *   val * y^n,    where y^32 ~= 0.5 (~1 scheduling period)
@@ -92,7 +56,7 @@ static u64 decay_load(u64 val, u64 n)
 		local_n %= LOAD_AVG_PERIOD;
 	}
 
-	val = mul_u64_u32_shr(val, pelt_runnable_avg_yN_inv[local_n], 32);
+	val = mul_u64_u32_shr(val, runnable_avg_yN_inv[local_n], 32);
 	return val;
 }
 
@@ -118,6 +82,8 @@ static u32 __accumulate_pelt_segments(u64 periods, u32 d1, u32 d3)
 
 	return c1 + c2 + c3;
 }
+
+#define cap_scale(v, s) ((v)*(s) >> SCHED_CAPACITY_SHIFT)
 
 /*
  * Accumulate the three separate parts of the sum; d1 the remainder
@@ -260,7 +226,7 @@ ___update_load_sum(u64 now, struct sched_avg *sa,
 static __always_inline void
 ___update_load_avg(struct sched_avg *sa, unsigned long load, unsigned long runnable)
 {
-	u32 divider = LOAD_AVG_MAX - 1024 + sa->period_contrib;
+	u32 divider = get_pelt_divider(sa);
 
 	/*
 	 * Step 2: update *_avg.
@@ -394,6 +360,37 @@ int update_dl_rq_load_avg(u64 now, struct rq *rq, int running)
 	return 0;
 }
 
+#ifdef CONFIG_SCHED_THERMAL_PRESSURE
+/*
+ * thermal:
+ *
+ *   load_sum = \Sum se->avg.load_sum but se->avg.load_sum is not tracked
+ *
+ *   util_avg and runnable_load_avg are not supported and meaningless.
+ *
+ * Unlike rt/dl utilization tracking that track time spent by a cpu
+ * running a rt/dl task through util_avg, the average thermal pressure is
+ * tracked through load_avg. This is because thermal pressure signal is
+ * time weighted "delta" capacity unlike util_avg which is binary.
+ * "delta capacity" =  actual capacity  -
+ *			capped capacity a cpu due to a thermal event.
+ */
+
+int update_thermal_load_avg(u64 now, struct rq *rq, u64 capacity)
+{
+	if (___update_load_sum(now, &rq->avg_thermal,
+			       capacity,
+			       capacity,
+			       capacity)) {
+		___update_load_avg(&rq->avg_thermal, 1, 1);
+		trace_pelt_thermal_tp(rq);
+		return 1;
+	}
+
+	return 0;
+}
+#endif
+
 #ifdef CONFIG_HAVE_SCHED_AVG_IRQ
 /*
  * irq:
@@ -441,45 +438,5 @@ int update_irq_load_avg(struct rq *rq, u64 running)
 
 	return ret;
 }
-#endif /* CONFIG_HAVE_SCHED_AVG_IRQ */
+#endif
 
-/*
- * Approximate the new util_avg value assuming an entity has continued to run
- * for @delta us.
- */
-unsigned long approximate_util_avg(unsigned long util, u64 delta)
-{
-	struct sched_avg sa = {
-		.util_sum = util * PELT_MIN_DIVIDER,
-		.util_avg = util,
-	};
-
-	if (unlikely(!delta))
-		return util;
-
-	accumulate_sum(delta, &sa, 1, 0, 1);
-	___update_load_avg(&sa, 0, 0);
-
-	return sa.util_avg;
-}
-
-/*
- * Approximate the required amount of runtime in ms required to reach @util.
- */
-u64 approximate_runtime(unsigned long util)
-{
-	struct sched_avg sa = {};
-	u64 delta = 1024; // period = 1024 = ~1ms
-	u64 runtime = 0;
-
-	if (unlikely(!util))
-		return runtime;
-
-	while (sa.util_avg < util) {
-		accumulate_sum(delta, &sa, 1, 0, 1);
-		___update_load_avg(&sa, 0, 0);
-		runtime++;
-	}
-
-	return runtime;
-}
