@@ -238,7 +238,7 @@ static void __show_data(unsigned long addr, int nbytes, const char *name, unsign
 	if (addr < KIMAGE_VADDR || addr > -256UL)
 		return;
 
-	printk(KERN_DEBUG "\n%s: %#lx:\n", name, addr);
+	printk(KERN_DEBUG "\n%s: %pS:\n", name, addr);
 
 	/*
 	 * round address down to a 32 bit boundary
