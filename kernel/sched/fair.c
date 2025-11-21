@@ -56,68 +56,12 @@
  
 #include <linux/rbtree_augmented.h>
 #include "sched.h"
-#include "xnu-sched.h"
 
 #include <trace/events/sched.h>
 
 #ifdef CONFIG_SMP
 static inline bool task_fits_max(struct task_struct *p, int cpu);
 #endif /* CONFIG_SMP */
-
-/*
- * clutch warp decay constants
- */
-#define CLUTCH_MIN_WARP_NS  5000
-#define CLUTCH_DECAY_NUM   1
-#define CLUTCH_DECAY_DENOM 3
-
-/*
- * Special markers for buckets that have invalid WCELs/quantums etc.
- */
-#define SCHED_CLUTCH_INVALID_TIME_32 ((uint32_t)~0)
-#define SCHED_CLUTCH_INVALID_TIME_64 ((uint64_t)~0)
-
-/*
- * Root level bucket WCELs
- *
- * The root level bucket selection algorithm is an Earliest Deadline
- * First (EDF) algorithm where the deadline for buckets are defined
- * by the worst-case-execution-latency and the make runnable timestamp
- * for the bucket.
- *
- */
-static uint32_t sched_clutch_root_bucket_wcel_us[TH_BUCKET_SCHED_MAX] = {
-	SCHED_CLUTCH_INVALID_TIME_32,                   /* FIXPRI */
-	0,                                              /* FG */
-	37500,                                          /* IN (37.5ms) */
-	75000,                                          /* DF (75ms) */
-	150000,                                         /* UT (150ms) */
-	250000                                          /* BG (250ms) */
-};
-//static uint64_t sched_clutch_root_bucket_wcel[TH_BUCKET_SCHED_MAX] = {0}; // unused-variable
-
-/*
- * Root level bucket warp
- *
- * Each root level bucket has a warp value associated with it as well.
- * The warp value allows the root bucket to effectively warp ahead of
- * lower priority buckets for a limited time even if it has a later
- * deadline. The warping behavior provides extra (but limited)
- * opportunity for high priority buckets to remain responsive.
- */
-
-/* Special warp deadline value to indicate that the bucket has not used any warp yet */
-#define SCHED_CLUTCH_ROOT_BUCKET_WARP_UNUSED    (SCHED_CLUTCH_INVALID_TIME_64)
-
-/* Warp window durations for various tiers */
-static uint32_t sched_clutch_root_bucket_warp_us[TH_BUCKET_SCHED_MAX] = {
-        SCHED_CLUTCH_INVALID_TIME_32,                   /* FIXPRI */
-        8000,                                           /* FG (8ms)*/
-        4000,                                           /* IN (4ms) */
-        2000,                                           /* DF (2ms) */
-        1000,                                           /* UT (1ms) */
-        0                                               /* BG (0ms) */
-};
 
 /*
  * Enable/disable honoring sync flag in energy-aware wakeups.
@@ -4385,37 +4329,6 @@ static inline bool task_demand_fits(struct task_struct *p, int cpu)
 	return task_fits_capacity(p, capacity, cpu);
 }
 
-static inline bool clutch_warp_active(struct task_struct *p, u64 now)
-{
-	u64 base_warp_ns = (u64)sched_clutch_root_bucket_warp_us[p->qos_bucket];
-	u64 decayed, remaining = (p->warp_expires > now) ? (p->warp_expires - now) : 0;
-	
-	/* 
-	 * Note-to-self: keeping track of the last time since the warp started could be useful
-	 * u64 elapsed = now - p->last_warp_start;
-	 */
-
-    	if (p->warp_expires == 0 || now >= p->warp_expires) {
-        	/* warp expired, start a new warp window */
-       		p->warp_expires = now + base_warp_ns;
-		p->last_warp_start = now;
-		p->warp_active = true;
-		return true;
-	}
-	
-	/* warp is active, decay */
-	decayed = remaining * CLUTCH_DECAY_NUM / CLUTCH_DECAY_DENOM;
-
-	if (decayed < CLUTCH_MIN_WARP_NS)
-		decayed = CLUTCH_MIN_WARP_NS;
-
-	p->warp_expires = now + decayed;
-	p->last_warp_start = now;
-	p->warp_active = true;
-
-	return true;
-}
-
 static inline void adjust_cpus_for_packing(struct task_struct *p,
 			int *target_cpu, int *best_idle_cpu,
 			int shallowest_idle_cstate,
@@ -4529,19 +4442,8 @@ static inline bool entity_is_long_sleeper(struct sched_entity *se)
 static void
 place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-	struct task_struct *p = task_of(se);
 	u64 vslice, vruntime = avg_vruntime(cfs_rq);
-	u64 wcel = (u64)sched_clutch_root_bucket_wcel_us[p->qos_bucket];
-	u64 now = rq_clock_task(rq_of(cfs_rq));
 	s64 lag = 0;
-	
-        /* warp is active, it's the
-         * highest-priority EDF
-         */
-	if (clutch_warp_active(p, now)) {
-		se->deadline = now;
-		return;
-	}
 	    
 	if (!se->custom_slice)
 		se->slice = sysctl_sched_base_slice;
@@ -4637,9 +4539,6 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 * EEVDF: vd_i = ve_i + r_i/w_i
 	 */
 	se->deadline = se->vruntime + vslice;
-	
-	if (wcel)
-		se->deadline = now + wcel;
 }
 
 static void check_enqueue_throttle(struct cfs_rq *cfs_rq);
