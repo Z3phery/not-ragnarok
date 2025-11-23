@@ -169,7 +169,7 @@ static void sugov_deferred_update(struct sugov_policy *sg_policy)
 
 /**
  * get_next_freq - Compute a new frequency for a given cpufreq policy.
- * @sg_policy: schedutil policy object to compute the new frequency for.
+ * @sg_policy: synthetica policy object to compute the new frequency for.
  * @util: Current CPU utilization.
  * @max: CPU capacity.
  *
@@ -646,7 +646,7 @@ static struct kobj_type sugov_tunables_ktype = {
 
 /********************** cpufreq governor interface *********************/
 
-static struct cpufreq_governor schedutil_gov;
+static struct cpufreq_governor synthetica_gov;
 
 static struct sugov_policy *sugov_policy_alloc(struct cpufreq_policy *policy)
 {
@@ -788,15 +788,20 @@ static int sugov_init(struct cpufreq_policy *policy)
 		ret = -ENOMEM;
 		goto stop_kthread;
 	}
-
-	tunables->rate_limit_us = 2000;
+#if 0
+# CONFIG_HZ_100 10000
+# CONFIG_HZ_250 4000
+# CONFIG_HZ_300 3333
+# CONFIG_HZ_1000 1000
+#endif
+	tunables->rate_limit_us = 10000;
 
 	policy->governor_data = sg_policy;
 	sg_policy->tunables = tunables;
 
 	ret = kobject_init_and_add(&tunables->attr_set.kobj, &sugov_tunables_ktype,
 				   get_governor_parent_kobj(policy), "%s",
-				   schedutil_gov.name);
+				   synthetica_gov.name);
 	if (ret)
 		goto fail;
 
@@ -938,8 +943,8 @@ static void sugov_limits(struct cpufreq_policy *policy)
 	WRITE_ONCE(sg_policy->limits_changed, true);
 }
 
-static struct cpufreq_governor schedutil_gov = {
-	.name			= "schedutil",
+static struct cpufreq_governor synthetica_gov = {
+	.name			= "synthetica",
 	.owner			= THIS_MODULE,
 	.dynamic_switching	= true,
 	.init			= sugov_init,
@@ -949,11 +954,11 @@ static struct cpufreq_governor schedutil_gov = {
 	.limits			= sugov_limits,
 };
 
-#ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
+#ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_SYNTHETICA
 struct cpufreq_governor *cpufreq_default_governor(void)
 {
-	return &schedutil_gov;
+	return &synthetica_gov;
 }
 #endif
 
-cpufreq_governor_init(schedutil_gov);
+cpufreq_governor_init(synthetica_gov);
