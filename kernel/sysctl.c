@@ -143,6 +143,7 @@ static int one_hundred = 100;
 #ifdef CONFIG_INCREASE_MAXIMUM_SWAPPINESS
 static int max_swappiness = 200;
 #endif
+extern int direct_vm_swappiness;
 static int one_thousand = 1000;
 #ifdef CONFIG_PRINTK
 static int ten_thousand = 10000;
@@ -1564,6 +1565,15 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= &max_swappiness,
+	},
+	{
+	        .procname	= "direct_swappiness",
+		.data		= &direct_vm_swappiness,
+		.maxlen 	= sizeof(direct_vm_swappiness),
+		.mode		= 0444,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1 	= SYSCTL_ZERO,
+		.extra2 	= &max_swappiness,
 	},
 	{
 		.procname	= "mmap_readaround_limit",
