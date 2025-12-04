@@ -198,6 +198,7 @@ obj-$(CONFIG_ESOC)              += esoc/
 obj-$(CONFIG_UNISYS_VISORBUS)	+= visorbus/
 obj-$(CONFIG_SIOX)		+= siox/
 obj-$(CONFIG_GNSS)		+= gnss/
+obj-$(CONFIG_INTERCONNECT)	+= interconnect/
 obj-$(CONFIG_SENSORS_SSC)	+= sensors/
 obj-$(CONFIG_SENSORS_TCS3407)	+= optics/
 obj-$(CONFIG_ADSP_FACTORY)      += adsp_factory/
