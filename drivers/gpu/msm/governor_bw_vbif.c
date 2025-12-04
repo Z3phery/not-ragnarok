@@ -5,7 +5,7 @@
 
 #include <linux/devfreq.h>
 #include <linux/module.h>
-#include <linux/msm_adreno_devfreq.h>
+#include "msm_adreno_devfreq.h"
 
 #include "../../devfreq/governor.h"
 

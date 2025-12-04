@@ -12,11 +12,12 @@
 #include <linux/io.h>
 #include <linux/ftrace.h>
 #include <linux/mm.h>
-#include <linux/msm_adreno_devfreq.h>
 #include <asm/cacheflush.h>
 #include <soc/qcom/scm.h>
 #include <soc/qcom/qtee_shmbridge.h>
 #include <linux/of_platform.h>
+
+#include "msm_adreno_devfreq.h"
 #include "../../devfreq/governor.h"
 
 static DEFINE_SPINLOCK(tz_lock);

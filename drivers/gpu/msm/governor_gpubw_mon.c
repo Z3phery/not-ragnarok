@@ -6,10 +6,10 @@
 
 #include <linux/devfreq.h>
 #include <linux/module.h>
-#include <linux/msm_adreno_devfreq.h>
 #include <linux/of_platform.h>
 #include <linux/slab.h>
 
+#include "msm_adreno_devfreq.h"
 #include "../../devfreq/governor.h"
 
 #define MIN_BUSY                1000

@@ -6,7 +6,7 @@
 #ifndef __KGSL_PWRSCALE_H
 #define __KGSL_PWRSCALE_H
 
-#include <linux/msm_adreno_devfreq.h>
+#include "msm_adreno_devfreq.h"
 #include "kgsl_pwrctrl.h"
 
 /* devfreq governor call window in usec */
