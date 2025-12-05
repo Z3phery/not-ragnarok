@@ -227,7 +227,7 @@ static inline int task_has_dl_policy(struct task_struct *p)
 
 static inline bool dl_entity_is_special(struct sched_dl_entity *dl_se)
 {
-#ifdef CONFIG_CPU_FREQ_GOV_SYNTHETICA
+#ifdef CONFIG_CPU_FREQ_GOV_SCHEDUTIL
 	return unlikely(dl_se->flags & SCHED_FLAG_SUGOV);
 #else
 	return false;
@@ -2705,7 +2705,7 @@ static inline unsigned long cpu_util_cfs(struct rq *rq)
 }
 #endif
 
-#ifdef CONFIG_CPU_FREQ_GOV_SYNTHETICA
+#ifdef CONFIG_CPU_FREQ_GOV_SCHEDUTIL
 
 unsigned long effective_cpu_util(int cpu, unsigned long util_cfs,
 				 unsigned long *min,
@@ -2730,14 +2730,14 @@ static inline unsigned long cpu_util_rt(struct rq *rq)
 	return READ_ONCE(rq->avg_rt.util_avg);
 }
 
-#else /* CONFIG_CPU_FREQ_GOV_SYNTHETICA */
+#else /* CONFIG_CPU_FREQ_GOV_SCHEDUTIL */
 unsigned long effective_cpu_util(int cpu, unsigned long util_cfs,
                                  unsigned long *min,
                                  unsigned long *max)
 {
 	return 0;
 }
-#endif /* CONFIG_CPU_FREQ_GOV_SYNTHETICA */
+#endif /* CONFIG_CPU_FREQ_GOV_SCHEDUTIL */
 
 #ifdef CONFIG_HAVE_SCHED_AVG_IRQ
 static inline unsigned long cpu_util_irq(struct rq *rq)

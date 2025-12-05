@@ -53,10 +53,10 @@ config CPU_FREQ_LIMIT
 choice
 	prompt "Default CPUFreq governor"
 	default CPU_FREQ_DEFAULT_GOV_USERSPACE if ARM_SA1100_CPUFREQ || ARM_SA1110_CPUFREQ
-	default CPU_FREQ_DEFAULT_GOV_SYNTHETICA
+	default CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
 	help
 	  This option sets which CPUFreq governor shall be loaded at
-	  startup. If in doubt, select 'synthetica'.
+	  startup. If in doubt, select 'schedutil'.
 
 config CPU_FREQ_DEFAULT_GOV_PERFORMANCE
 	bool "performance"
@@ -107,12 +107,12 @@ config CPU_FREQ_DEFAULT_GOV_CONSERVATIVE
 	  governor. If unsure have a look at the help section of the
 	  driver. Fallback governor will be the performance governor.
 
-config CPU_FREQ_DEFAULT_GOV_SYNTHETICA
-	bool "synthetica"
+config CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
+	bool "schedutil"
 	depends on SMP
-	select CPU_FREQ_GOV_SYNTHETICA
+	select CPU_FREQ_GOV_SCHEDUTIL
 	help
-	  Use the 'synthetica' CPUFreq governor by default. If unsure,
+	  Use the 'schedutil' CPUFreq governor by default. If unsure,
 	  have a look at the help section of that governor.
 
 endchoice
@@ -207,8 +207,8 @@ config CPU_BOOST
 
 	  If in doubt, say N.
 
-config CPU_FREQ_GOV_SYNTHETICA
-	bool "'synthetica' cpufreq policy governor"
+config CPU_FREQ_GOV_SCHEDUTIL
+	bool "'schedutil' cpufreq policy governor"
 	depends on CPU_FREQ && SMP
 	select CPU_FREQ_GOV_ATTR_SET
 	select IRQ_WORK
