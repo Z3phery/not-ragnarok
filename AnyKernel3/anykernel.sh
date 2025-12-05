@@ -4,7 +4,7 @@
 ## AnyKernel setup
 # begin properties
 properties() { '
-kernel.string=not_Kernel by @skye // pa1n
+kernel.string=not-ragnarok by Zepheri (Source by @skye // pa1n)
 do.devicecheck=1
 do.modules=0
 do.systemless=1
@@ -13,7 +13,7 @@ do.cleanuponabort=0
 device.name1=r8q
 device.name2=r8qxx
 device.name3=r8qxxx
-supported.versions=15 - 18
+supported.versions=14 - 16
 supported.patchlevels=
 '; } # end properties
 
