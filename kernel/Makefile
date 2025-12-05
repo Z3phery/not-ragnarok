@@ -3,6 +3,10 @@
 # Makefile for the linux kernel.
 #
 
+# Auto Hash
+GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+CFLAGS_sys.o += -DBUILD_HASH=\"$(GIT_HASH)\"
+
 obj-y     = fork.o exec_domain.o panic.o \
 	    cpu.o exit.o softirq.o resource.o \
 	    sysctl.o sysctl_binary.o capability.o ptrace.o user.o \
