@@ -2712,8 +2712,8 @@ static int do_sysinfo(struct sysinfo *info)
 	si_meminfo(info);
 	si_swapinfo(info);
 
-	/* FAKE: pretend we have 12gb of ram to the system*/
-	info->totalram = 11756937600 / info->mem_unit;
+	/* FAKE: pretend we have 8gb of ram to the system*/
+	info->totalram = 7837958400 / info->mem_unit;
 
 	/*
 	 * If the sum of all the available memory (i.e. ram + swap)
