@@ -146,3 +146,5 @@ AnyKernel3/dtbo.img
 *.zip
 KernelSU/
 drivers/kernelsu
+KernelSU/
+drivers/kernelsu/
