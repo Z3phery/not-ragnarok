@@ -1250,7 +1250,7 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 #define BUILD_HASH "unknown"
 #endif
 
-	snprintf(tmp.release, sizeof(tmp.release), "6.6.77-not-ragnarok@%s", BUILD_HASH);
+	snprintf(tmp.release, sizeof(tmp.release), "4.19.325-not-ragnarok@%s", BUILD_HASH);
 
 	if (!strncmp(current->comm, "bpfloader", 9) ||
 	    !strncmp(current->comm, "netbpfload", 10) ||
