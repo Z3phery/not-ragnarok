@@ -91,49 +91,45 @@ int ksu_handle_setuid_common(uid_t new_uid, uid_t old_uid, uid_t new_euid,
 #endif
 
 	// if old process is root, ignore it.
-	if (old_uid != 0) {
-		if (ksu_enhanced_security_enabled) {
-			// disallow any non-ksu domain escalation from non-root to root!
-			// euid is what we care about here as it controls permission
-			if (unlikely(new_euid == 0) && !is_ksu_domain()) {
-				pr_warn("find suspicious EoP: %d %s, from %d to %d\n",
-					current->pid, current->comm, old_uid,
-					new_uid);
-				__force_sig(SIGKILL);
-				return 0;
-			}
-			// disallow appuid decrease to any other uid if it is not allowed to su
-			if (is_appuid(old_uid) && new_euid < old_euid &&
-			    !ksu_is_allow_uid_for_current(old_uid)) {
-				pr_warn("find suspicious EoP: %d %s, from %d to %d\n",
-					current->pid, current->comm, old_euid,
-					new_euid);
-				__force_sig(SIGKILL);
-				return 0;
-			}
+	if (old_uid != 0 && ksu_enhanced_security_enabled) {
+		// disallow any non-ksu domain escalation from non-root to root!
+		// euid is what we care about here as it controls permission
+		if (unlikely(new_euid == 0) && !is_ksu_domain()) {
+			pr_warn("find suspicious EoP: %d %s, from %d to %d\n",
+				current->pid, current->comm, old_uid,
+				new_uid);
+			__force_sig(SIGKILL);
+			return 0;
+		}
+		// disallow appuid decrease to any other uid if it is not allowed to su
+		if (is_appuid(old_uid) && new_euid < old_euid &&
+		    !ksu_is_allow_uid_for_current(old_uid)) {
+			pr_warn("find suspicious EoP: %d %s, from %d to %d\n",
+				current->pid, current->comm, old_euid,
+				new_euid);
+			__force_sig(SIGKILL);
+			return 0;
 		}
 		return 0;
 	}
 
-	// if on private space, see if its possibly the manager
-	if (new_uid > PER_USER_RANGE &&
-	    new_uid % PER_USER_RANGE == ksu_get_manager_uid()) {
-		ksu_set_manager_uid(new_uid);
-	}
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-	if (ksu_get_manager_uid() == new_uid) {
+	if (ksu_get_manager_appid() == new_uid % PER_USER_RANGE) {
 		pr_info("install fd for ksu manager(uid=%d)\n", new_uid);
 		ksu_install_fd();
 		spin_lock_irq(&current->sighand->siglock);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 		ksu_seccomp_allow_cache(current->seccomp.filter, __NR_reboot);
 #ifdef CONFIG_KSU_SYSCALL_HOOK
 		ksu_set_task_tracepoint_flag(current);
+#endif
+#else
+		disable_seccomp(current);
 #endif
 		spin_unlock_irq(&current->sighand->siglock);
 		return 0;
 	}
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 	if (ksu_is_allow_uid_for_current(new_uid)) {
 		if (current->seccomp.mode == SECCOMP_MODE_FILTER &&
 		    current->seccomp.filter) {
@@ -149,15 +145,6 @@ int ksu_handle_setuid_common(uid_t new_uid, uid_t old_uid, uid_t new_euid,
 #endif
 	}
 #else
-	if (ksu_get_manager_uid() == new_uid) {
-		pr_info("install fd for ksu manager(uid=%d)\n", new_uid);
-		ksu_install_fd();
-		spin_lock_irq(&current->sighand->siglock);
-		disable_seccomp(current);
-		spin_unlock_irq(&current->sighand->siglock);
-		return 0;
-	}
-
 	if (ksu_is_allow_uid_for_current(new_uid)) {
 		// FIXME: Should do proper checking
 		if (current->seccomp.filter != NULL) {
