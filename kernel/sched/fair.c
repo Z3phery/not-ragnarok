@@ -82,16 +82,14 @@ unsigned int sysctl_sched_cstate_aware = 1;
  *   SCHED_TUNABLESCALING_LOG - scaled logarithmical, *1+ilog(ncpus)
  *   SCHED_TUNABLESCALING_LINEAR - scaled linear, *ncpus
  *
- * (EEVDF  default SCHED_TUNABLESCALING_LOG  = *(1+ilog(ncpus))
- * (NOT    default SCHED_TUNABLESCALING_NONE = *1)
+ * (CFS  default SCHED_TUNABLESCALING_LOG  = *(1+ilog(ncpus))
  */
 enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
 
 /*
  * Minimal preemption granularity for CPU-bound tasks:
  *
- * (EEVDF default: 3 msec * (1 + ilog(ncpus)), units: nanoseconds)
- * (NOT   default: 2.8 msec * 1, units: nanoseconds)
+ * (default: 3 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
 unsigned int sysctl_sched_base_slice			= 2800000ULL;
 static unsigned int normalized_sysctl_sched_base_slice	= 2800000ULL;
@@ -137,36 +135,34 @@ unsigned int sysctl_sched_cfs_bandwidth_slice		= 5000UL;
  *
  * (default: ~5%)
  */
-#define fits_capacity(cap, max)	((cap) * 1078 < (max) * 1024)
 unsigned int capacity_margin				= 1078;
 
 /*
- * ~5% margin
+ * The margin used when comparing utilization with CPU capacity.
+ *
+ * (default: ~5%)
  */
+#define fits_capacity(cap, max)	((cap) * 1078 < (max) * 1024)
+
 unsigned int sched_capacity_margin_up[NR_CPUS] = {
 	[0 ... NR_CPUS - 1] = 1078
-};
-
-/*
- * ~5% margin
- */
+}; /* ~5% margin */
 unsigned int sched_capacity_margin_down[NR_CPUS] = {
 	[0 ... NR_CPUS - 1] = 1078
-};
-
-/*
- * 72% margin for small, 20% for big, 20% for prime
- */
+}; /* ~5% margin */
 unsigned int sched_capacity_margin_up_boosted[NR_CPUS] = {
 	1280, 1280, 1280, 1280, 1280, 1280, 1280, 1280
-};  
-
-/*
- * 72% margin for small, 72% margin for big, 72% margin for prime
- */
+}; /* 72% margin for small, 20% for big, 20% for prime */
 unsigned int sched_capacity_margin_down_boosted[NR_CPUS] = {
 	3658, 3658, 3658, 3658, 3658, 3658, 3658, 3658
-}; 
+}; /* 72% margin for small, 72% margin for big, 72% margin for big+ */
+
+/* 1ms default for 20ms window size scaled to 1024 */
+unsigned int sysctl_sched_min_task_util_for_boost = 60;
+/* 0.68ms default for 20ms window size scaled to 1024 */
+unsigned int sysctl_sched_min_task_util_for_colocation = 38;
+unsigned int sysctl_walt_rtg_cfs_boost_prio = 99; /* disabled by default */
+unsigned int sysctl_walt_low_latency_task_threshold; /* disabled by default */
 
 static inline void update_load_add(struct load_weight *lw, unsigned long inc)
 {
@@ -5029,6 +5025,7 @@ static void throttle_cfs_rq(struct cfs_rq *cfs_rq)
 			dequeue_entity(qcfs_rq, se, DEQUEUE_SLEEP);
 		qcfs_rq->h_nr_running -= task_delta;
                 qcfs_rq->idle_h_nr_running -= idle_task_delta;
+		walt_dec_throttled_cfs_rq_stats(&qcfs_rq->walt_stats, cfs_rq);
 
 		if (qcfs_rq->load.weight)
 			dequeue = 0;
@@ -5036,6 +5033,7 @@ static void throttle_cfs_rq(struct cfs_rq *cfs_rq)
 
 	if (!se) {
 		sub_nr_running(rq, task_delta);
+		walt_dec_throttled_cfs_rq_stats(&rq->walt_stats, cfs_rq);
 	}
 
 	cfs_rq->throttled = 1;
@@ -5100,6 +5098,7 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
 			enqueue_entity(cfs_rq, se, ENQUEUE_WAKEUP);
 		cfs_rq->h_nr_running += task_delta;
                 cfs_rq->idle_h_nr_running += idle_task_delta;
+		walt_inc_throttled_cfs_rq_stats(&cfs_rq->walt_stats, tcfs_rq);
 
 		if (cfs_rq_throttled(cfs_rq))
 			break;
@@ -5109,6 +5108,7 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
 
 	if (!se) {
 		add_nr_running(rq, task_delta);
+		walt_inc_throttled_cfs_rq_stats(&rq->walt_stats, tcfs_rq);
 	}
 
 	/* Determine whether we need to wake up potentially idle CPU: */
@@ -5491,6 +5491,7 @@ static void init_cfs_rq_runtime(struct cfs_rq *cfs_rq)
 {
 	cfs_rq->runtime_enabled = 0;
 	INIT_LIST_HEAD(&cfs_rq->throttled_list);
+	walt_init_cfs_rq_stats(cfs_rq);
 }
 
 void start_cfs_bandwidth(struct cfs_bandwidth *cfs_b)
@@ -5741,7 +5742,8 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
         int idle_h_nr_running = task_has_idle_policy(p);
-	bool prefer_idle = sched_feat(EAS_PREFER_IDLE);
+	bool prefer_idle = sched_feat(EAS_PREFER_IDLE) ?
+				(schedtune_prefer_idle(p) > 0) : 0;
 
 
 	/*
@@ -5750,7 +5752,33 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	 * Let's add the task's estimated utilization to the cfs_rq's
 	 * estimated utilization, before we update schedutil.
 	 */
-	util_est_enqueue(&rq->cfs, p);
+util_est_enqueue(&rq->cfs, p);
+
+	/*
+	 * The code below (indirectly) updates schedutil which looks at
+	 * the cfs_rq utilization to select a frequency.
+	 * Let's update schedtune here to ensure the boost value of the
+	 * current task is accounted for in the selection of the OPP.
+	 *
+	 * We do it also in the case where we enqueue a throttled task;
+	 * we could argue that a throttled task should not boost a CPU,
+	 * however:
+	 * a) properly implementing CPU boosting considering throttled
+	 *    tasks will increase a lot the complexity of the solution
+	 * b) it's not easy to quantify the benefits introduced by
+	 *    such a more complex solution.
+	 * Thus, for the time being we go for the simple solution and boost
+	 * also for throttled RQs.
+	 */
+	schedtune_enqueue_task(p, cpu_of(rq));
+
+	/*
+	 * If in_iowait is set, the code below may not trigger any cpufreq
+	 * utilization updates, so do it here explicitly with the IOWAIT flag
+	 * passed.
+	 */
+	if (p->in_iowait)
+		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
 
 	for_each_sched_entity(se) {
 		if (se->on_rq)
@@ -5837,6 +5865,14 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int task_sleep = flags & DEQUEUE_SLEEP;
 	int idle_h_nr_running = task_has_idle_policy(p);
 	bool was_sched_idle = sched_idle_rq(rq);
+
+	/*
+	 * The code below (indirectly) updates schedutil which looks at
+	 * the cfs_rq utilization to select a frequency.
+	 * Let's update schedtune here to ensure the boost value of the
+	 * current task is not more accounted for in the selection of the OPP.
+	 */
+	schedtune_dequeue_task(p, cpu_of(rq));
 
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
@@ -6215,11 +6251,87 @@ static unsigned long cpu_avg_load_per_task(int cpu)
 	return 0;
 }
 
+#ifdef CONFIG_SCHED_TUNE
+struct reciprocal_value schedtune_spc_rdiv;
+
+static long
+schedtune_margin(unsigned long signal, long boost)
+{
+	long long margin = 0;
+
+	/*
+	 * Signal proportional compensation (SPC)
+	 *
+	 * The Boost (B) value is used to compute a Margin (M) which is
+	 * proportional to the complement of the original Signal (S):
+	 *   M = B * (SCHED_CAPACITY_SCALE - S)
+	 * The obtained M could be used by the caller to "boost" S.
+	 */
+	if (boost >= 0) {
+		margin  = SCHED_CAPACITY_SCALE - signal;
+		margin *= boost;
+	} else
+		margin = -signal * boost;
+
+	margin  = reciprocal_divide(margin, schedtune_spc_rdiv);
+
+	if (boost < 0)
+		margin *= -1;
+	return margin;
+}
+
+inline long
+schedtune_cpu_margin_with(unsigned long util, int cpu, struct task_struct *p)
+{
+	int boost = schedtune_cpu_boost_with(cpu, p);
+	long margin;
+
+	if (boost == 0)
+		margin = 0;
+	else
+		margin = schedtune_margin(util, boost);
+
+	trace_sched_boost_cpu(cpu, util, margin);
+
+	return margin;
+}
+
+long schedtune_task_margin(struct task_struct *task)
+{
+	int boost = schedtune_task_boost(task);
+	unsigned long util;
+	long margin;
+
+	if (boost == 0)
+		return 0;
+
+	util = task_util_est(task);
+	margin = schedtune_margin(util, boost);
+
+	return margin;
+}
+
+unsigned long
+stune_util(int cpu, unsigned long other_util)
+{
+	unsigned long util = min_t(unsigned long, SCHED_CAPACITY_SCALE,
+				   cpu_util_freq(cpu) + other_util);
+	long margin = schedtune_cpu_margin_with(util, cpu, NULL);
+
+	trace_sched_boost_cpu(cpu, util, margin);
+
+	return util + margin;
+}
+
+#else /* CONFIG_SCHED_TUNE */
+
 inline long
 schedtune_cpu_margin_with(unsigned long util, int cpu, struct task_struct *p)
 {
 	return 0;
 }
+
+#endif /* CONFIG_SCHED_TUNE */
 
 static unsigned long cpu_util_without(int cpu, struct task_struct *p);
 
